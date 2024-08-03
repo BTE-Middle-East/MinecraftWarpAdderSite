@@ -1,0 +1,14 @@
+#/etc/systemd/system/warpadder.service
+
+[Unit]
+Description= 
+After=network.target
+[Service]
+Type=simple
+User=nobody
+Restart=always
+RestartSec=5s
+ExecStart=python /home/axolotl_/EssentialX-Manual-Warp/app.py
+LimitNOFILE=1048576
+[Install]
+WantedBy=multi-user.target
