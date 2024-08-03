@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, send_from_directory
 import os
 from uuid import uuid4
 import paramiko
@@ -15,7 +15,9 @@ SFTP_UPLOAD_DIR = '/plugins/Essentials/warps'  # Specify the directory on the SF
 
 @app.route('/')
 def index():
-    return render_template('form.html')
+    # List files in the 'submissions' directory
+    files = os.listdir('submissions')
+    return render_template('form.html', files=files)
 
 @app.route('/submit', methods=['POST'])
 def submit():
@@ -77,6 +79,10 @@ def submit():
         return f"Failed to upload the file to SFTP: {e}"
 
     return f"Data submitted successfully, saved as {file_name}, and uploaded to SFTP!"
+
+@app.route('/files/<filename>')
+def serve_file(filename):
+    return send_from_directory('submissions', filename)
 
 if __name__ == '__main__':
     if not os.path.exists('submissions'):
