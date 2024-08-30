@@ -5,20 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Warp Creator | BTE Middle East</title>
     <meta name="description" content="Create your warp for BTE Middle East">
-    <link rel="stylesheet" href="../static/styles.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
-            <img src="../static/images/BTEMELogo.png" alt="BTE ME Logo" class="Logo">
+            <img src="{{ url_for('static', filename='images/BTEMELogo.png') }}" alt="BTE ME Logo" class="Logo">
         </header>
         <main>
             <h1>Warp Creator</h1>
+            <!-- Discord Authentication Button -->
+            {% if 'discord_user' not in session %}
+                <a href="{{ url_for('login') }}" class="discord-auth-button">
+                    <img src="{{ url_for('static', filename='images/discord-logo.png') }}" alt="Discord Logo">
+                    Authenticate with Discord
+                </a>
+            {% else %}
+                <p>Welcome, {{ session['discord_user']['username'] }}!</p>
+            {% endif %}
+
             <form method="POST" class="form-container">
                 <label for="name">Warp Name:</label>
                 <input type="text" id="name" name="name" required placeholder="E.G Dubai Marina">
+
                 <label for="coordinates">Coordinates (x, y, z):</label>
                 <input type="text" id="coordinates" name="coordinates" placeholder="x, y, z" required>
+
                 <button class="submit" role="button">Submit</button>
             </form>
         </main>

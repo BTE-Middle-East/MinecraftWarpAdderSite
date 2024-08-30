@@ -1,64 +1,94 @@
-from flask import Flask, request, render_template, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
-from waitress import serve
+from flask import Flask, redirect, request, session, render_template, url_for
+from oauthlib.oauth2 import WebApplicationClient
+import mysql.connector
+import requests
+import waitress
+import config
 
 app = Flask(__name__)
+app.secret_key = config.SECRET_KEY
 
-# Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://username:password@host:port/database'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+client = WebApplicationClient(config.DISCORD_CLIENT_ID)
 
-# Model for storing the file data
-class FileData(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    x = db.Column(db.Float, nullable=False)
-    y = db.Column(db.Float, nullable=False)
-    z = db.Column(db.Float, nullable=False)
-    file_content = db.Column(db.Text, nullable=False)
+# Connect to MySQL database
+def get_db_connection():
+    conn = mysql.connector.connect(
+        host=config.MYSQL_HOST,
+        user=config.MYSQL_USER,
+        password=config.MYSQL_PASSWORD,
+        database=config.MYSQL_DB
+    )
+    return conn
 
-    def __repr__(self):
-        return f'<FileData {self.name}>'
-
-# Route for the form
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/')
 def index():
-    if request.method == 'POST':
-        name = request.form['name'].strip().replace(' ', '_')
-        coordinates = request.form['coordinates']
-
-        # Split the coordinates into x, y, z
-        try:
-            x, y, z = map(float, coordinates.split(','))
-        except ValueError:
-            return "Invalid coordinates format. Please use 'x, y, z'."
-
-        # Template with default values
-        file_content = f"""world: 1c617a1b-94f2-4311-9ae2-c4102bf1e96f
-world-name: world
-x: {x}
-y: {y}
-z: {z}
-yaw: 0
-pitch: 0
-name: {name}
-lastowner: ea0064bf-04dc-419e-8a0d-311c9a2b7a87
-"""
-
-        # Save the data in the database
-        new_file = FileData(name=name, x=x, y=y, z=z, file_content=file_content)
-        db.session.add(new_file)
-        db.session.commit()
-
-        return redirect(url_for('index'))
-
+    if 'discord_user' in session:
+        return redirect(url_for('form'))
     return render_template('index.html')
 
-# Run the app using Waitress
-if __name__ == '__main__':
-    # Initialize the database tables
-    with app.app_context():
-        db.create_all()
+@app.route('/login')
+def login():
+    authorization_url, state = client.prepare_authorization_request(
+        config.DISCORD_OAUTH_URL,
+        redirect_uri=config.DISCORD_REDIRECT_URI,
+        scope=["identify", "guilds"]
+    )
+    session['oauth_state'] = state
+    return redirect(authorization_url)
 
-    serve(app, host='0.0.0.0', port=8080)
+@app.route('/callback')
+def callback():
+    token_url, headers, body = client.prepare_token_request(
+        config.DISCORD_TOKEN_URL,
+        authorization_response=request.url,
+        redirect_uri=config.DISCORD_REDIRECT_URI,
+        client_secret=config.DISCORD_CLIENT_SECRET
+    )
+    token_response = requests.post(token_url, headers=headers, data=body, auth=(config.DISCORD_CLIENT_ID, config.DISCORD_CLIENT_SECRET))
+    client.parse_request_body_response(token_response.text)
+
+    userinfo_response = requests.get(f"{config.DISCORD_API_BASE_URL}/users/@me", headers={
+        "Authorization": f"Bearer {client.access_token}"
+    })
+    session['discord_user'] = userinfo_response.json()
+
+    guilds_response = requests.get(f"{config.DISCORD_API_BASE_URL}/users/@me/guilds", headers={
+        "Authorization": f"Bearer {client.access_token}"
+    })
+    user_guilds = guilds_response.json()
+
+    for guild in user_guilds:
+        if guild['id'] == config.DISCORD_GUILD_ID:
+            role_check_response = requests.get(
+                f"{config.DISCORD_API_BASE_URL}/guilds/{config.DISCORD_GUILD_ID}/members/{session['discord_user']['id']}",
+                headers={"Authorization": f"Bearer {client.access_token}"}
+            )
+            if config.DISCORD_ROLE_ID in [role['id'] for role in role_check_response.json().get('roles', [])]:
+                return redirect(url_for('form'))
+
+    return "Unauthorized", 403
+
+@app.route('/form', methods=['GET', 'POST'])
+def form():
+    if 'discord_user' not in session:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        # Retrieve form data
+        x, y, z = map(int, request.form['coordinates'].split(','))
+        name = request.form['name'].replace(' ', '_')
+
+        # Insert into the MySQL database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO your_table (x, y, z, name) VALUES (%s, %s, %s, %s)", (x, y, z, name))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return "Data submitted!"
+
+    return render_template('form.html')
+
+if __name__ == '__main__':
+    waitress.serve(app, host='0.0.0.0', port=5000)
